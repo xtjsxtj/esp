@@ -1,0 +1,159 @@
+#!/usr/local/php/bin/php
+<?php
+
+/**
+ * esproxy 启动脚本
+ * @author jiaofuyou@qq.com
+ * @date   2015-11-25
+ * 
+ * 这种直接执行的方式，要求文件必须为unix格式，妈不带回车
+ * esp start|stop|reload|restart|status
+ * 
+ */
+
+error_reporting(E_ALL);
+
+require_once __DIR__.'/../lib/autoload.php';  
+
+if(empty($argv[1]))
+{
+    echo "esp start|stop|reload|restart|status\n";
+    exit;
+}
+
+$param['server_name'] = 'es_proxy';
+$param['server_file'] = __DIR__.'/../proxy/index.php';
+$param['cmd'] = $argv[1];
+
+$param['pid_file'] = swoole::$info_dir . "swoole_{$param['server_name']}.pid";
+$pid_file = $param['pid_file'];
+
+switch( $param['cmd'] )
+{    
+    case 'start':
+        if (file_exists($pid_file)){
+            $pid = file_get_contents($pid_file);
+            $pid = intval($pid);
+            if ($pid > 0 && posix_kill($pid, 0)){
+                exit("the server is already started!\n");
+            }
+        }
+        start_and_wait($param, 15);
+        exit;
+        break;
+    case 'stop':
+        stop_and_wait($param, 5);
+        exit;
+        break;
+    case 'restart':
+        stop_and_wait($param, 5);
+        start_and_wait($param,15);
+        exit;
+        break;
+    case 'reload':
+        $pid = @file_get_contents($pid_file);
+        if(empty($pid))
+        {
+            exit("Server is not running!\n");
+        }
+        if (!posix_kill($pid, 0)){
+            exit("Server is not running!\n");
+        }
+        posix_kill($pid, SIGUSR1);
+        echo "Server reload ok!\n";
+        break;
+    case 'status':
+        $pid = @file_get_contents($pid_file);
+        if(empty($pid))
+        {
+            exit("Server is not running!\n");
+        }
+        if (!posix_kill($pid, 0)){
+            exit("Server is not running!\n");
+        }
+        exec("ps -ef | grep {$param['server_name']} | grep -v grep | grep -v esp", $ret);
+        foreach($ret as $line) echo $line."\n";
+        break;      
+    default:
+        echo "Usage: asf <server_name> <start|stop|restart|reload|status|init>".PHP_EOL;
+        exit;
+
+}
+
+function start_and_wait($param, $wait_time = 5)
+{
+    global $param;
+    $pid_file = $param['pid_file'];
+    $server_file = $param['server_file'];
+    $server_name = $param['server_name'];
+
+    echo exec("/usr/bin/php $server_file");
+
+    $start_time = time();
+    $succ=false;
+    while(true)
+    {
+        if (file_exists($pid_file)){
+            $pid = file_get_contents($pid_file);
+            $pid = intval($pid);
+            if ($pid > 0 && posix_kill($pid, 0)){
+                exec("ps -ef | grep $server_name | grep -v grep", $ret);
+                if ( count($ret) > 2 ) {
+                    $succ=true;
+                    break;
+                }
+            }
+        }
+        clearstatcache();
+        usleep(100);
+        if(time()-$start_time >= $wait_time)
+        {
+            usleep(500000);
+            break;
+        }
+    }
+    if ( $succ )
+        echo "Server start ok!\n";
+    else
+        echo "Server start error, please view logfile!\n";
+
+    return;
+}
+
+function stop_and_wait($param, $wait_time = 5)
+{
+    global $param;
+    $pid_file = $param['pid_file'];
+    $server_file = $param['server_file'];
+    $server_name = $param['server_name'];
+
+    $pid = @file_get_contents($pid_file);
+    if(empty($pid))
+    {
+        exit("Server is not running!\n");
+    }
+    if (!posix_kill($pid, 0)){
+        exit("Server is not running!\n");
+    }
+    posix_kill($pid, SIGTERM);
+
+    $start_time = time();
+    while(is_file($pid_file))
+    {
+        clearstatcache();
+        usleep(1000);
+        if(time()-$start_time >= $wait_time)
+        {
+            posix_kill($pid, SIGTERM);
+            posix_kill($pid, SIGTERM);
+            unlink($pid_file);
+            usleep(500000);
+            echo aaa;
+            break;
+        }
+    }
+
+    echo "Server stop ok!\n";
+
+    return;
+}
