@@ -1,2 +1,0 @@
-# esp
-Elasticsearch Proxy
